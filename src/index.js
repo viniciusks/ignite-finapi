@@ -25,12 +25,26 @@ function verifyExistsAccountCPF(req, res, next) {
     return next();
 }
 
+function getBalance(statement) {
+    const balance = statement.reduce((acc, operation) => {
+        if(operation.type == "credit") {
+            return acc + operation.amount;
+        } else {
+            return acc - operation.amount;
+        }
+    }, 0);
+
+    return balance;
+}
+
 // Accounts
-app.get("/account", (req, res) => {
-    return res.json(customers);
+app.get("/account", verifyExistsAccountCPF, (req, res) => {
+    const { customer } = req;
+
+    return res.json(customer);
 });
 
-app.post('/account', (req, res) => {
+app.post("/account", (req, res) => {
     const { cpf, name } = req.body;
 
     const customersAlreadyExists = customers.some((customer) => customer.cpf == cpf);
@@ -55,11 +69,39 @@ app.post('/account', (req, res) => {
 
 });
 
+app.put("/account", verifyExistsAccountCPF, (req, res) => {
+    const { name } = req.body;
+    const { customer } = req;
+
+    customer.name = name;
+
+    return res.status(201).json(customer.name);
+});
+
+app.delete("/account", verifyExistsAccountCPF, (req, res) => {
+    const { customer } = req;
+
+    customers.splice(customer, 1);
+
+    return res.status(200).json(customers);
+})
+
 // Statements
 app.get("/statement", verifyExistsAccountCPF, (req, res) => {
     const { customer } = req;
 
     return res.json(customer.statement);
+});
+
+app.get("/statement/date", verifyExistsAccountCPF, (req, res) => {
+    const { customer } = req;
+    const { date } = req.query;
+
+    const dateFormat = new Date(date + " 00:00");
+    console.log(customer.statement);
+    const statement = customer.statement.filter((statement) => statement.created_at.toDateString() == new Date(dateFormat).toDateString());
+
+    return res.json(statement);
 });
 
 // Deposit
@@ -80,6 +122,42 @@ app.post("/deposit", verifyExistsAccountCPF, (req, res) => {
         status_code: 201,
         message: "Deposit success"
     });
+});
+
+// Withdraw
+app.post("/withdraw", verifyExistsAccountCPF, (req, res) => {
+    const { amount } = req.body;
+    const { customer } = req;
+    const balance = getBalance(customer.statement);
+
+    if(balance < amount) {
+        return res.status(400).json({
+            status_code: 400,
+            message: "Insufficient funds!"
+        });
+    }
+
+    const statementOperation = {
+        amount,
+        created_at: new Date(),
+        type: "debit"
+    }
+
+    customer.statement.push(statementOperation);
+
+    return res.status(201).json({
+        status_code: 201,
+        message: "Withdraw success!"
+    })
+});
+
+// Balance
+app.get("/balance", verifyExistsAccountCPF, (req, res) => {
+    const { customer } = req;
+
+    const balance = getBalance(customer.statement);
+
+    return res.json(balance);
 })
 
 app.listen(3333, () => {
